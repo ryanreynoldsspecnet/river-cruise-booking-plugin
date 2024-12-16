@@ -127,7 +127,17 @@ register_activation_hook(__FILE__, 'river_cruise_activate');
 // Google Calendar Authentication
 function river_cruise_google_auth() {
     $client = new Google_Client();
-    $client->setAuthConfig(plugin_dir_path(__FILE__) . 'credentials.json');
+    
+    // Dynamically load credentials.json
+    $credentials_path = plugin_dir_path(__FILE__) . 'credentials.json';
+    if (file_exists($credentials_path)) {
+        $client->setAuthConfig($credentials_path);
+    } else {
+        error_log('Google credentials.json file not found.');
+        echo '<p>Error: Google credentials file is missing. Please upload credentials.json to the plugin directory.</p>';
+        return;
+    }
+
     $client->addScope(Google_Service_Calendar::CALENDAR);
     $client->setRedirectUri(admin_url('admin.php?page=river_cruise_google_auth'));
 
