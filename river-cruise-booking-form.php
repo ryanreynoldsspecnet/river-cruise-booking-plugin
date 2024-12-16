@@ -3,8 +3,11 @@
 Plugin Name: River Cruise Booking Form
 Description: Custom booking form for Inspiration River Cruises.
 Version: 1.0
-Author: Your Name
+Author: Ryan Reynolds
 */
+
+// Include Google API Client
+require_once __DIR__ . '/vendor/autoload.php';
 
 // Enqueue scripts and styles
 function river_cruise_enqueue_scripts() {
@@ -16,6 +19,8 @@ add_action('wp_enqueue_scripts', 'river_cruise_enqueue_scripts');
 
 // Shortcode for the booking form
 function river_cruise_booking_form_shortcode() {
+    $slots = river_cruise_fetch_calendar_slots();
+
     ob_start();
     ?>
     <form id="river-cruise-booking-form">
@@ -29,7 +34,17 @@ function river_cruise_booking_form_shortcode() {
         <input type="text" id="phone" name="phone" required>
 
         <label for="cruise_date">Cruise Date:</label>
-        <input type="date" id="cruise_date" name="cruise_date" required>
+        <select id="cruise_date" name="cruise_date" required>
+            <?php if (isset($slots['error'])): ?>
+                <option disabled><?php echo esc_html($slots['error']); ?></option>
+            <?php else: ?>
+                <?php foreach ($slots as $slot): ?>
+                    <option value="<?php echo esc_attr($slot['start']); ?>">
+                        <?php echo esc_html(date('Y-m-d H:i', strtotime($slot['start'])) . ' to ' . date('H:i', strtotime($slot['end']))); ?>
+                    </option>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </select>
 
         <label for="seats">Number of Seats:</label>
         <input type="number" id="seats" name="seats" min="1" required>
@@ -42,6 +57,7 @@ function river_cruise_booking_form_shortcode() {
     <?php
     return ob_get_clean();
 }
+
 add_shortcode('river_cruise_form', 'river_cruise_booking_form_shortcode');
 
 // Handle form submission
@@ -107,3 +123,109 @@ function river_cruise_activate() {
     dbDelta($sql);
 }
 register_activation_hook(__FILE__, 'river_cruise_activate');
+
+// Google Calendar Authentication
+function river_cruise_google_auth() {
+    $client = new Google_Client();
+    $client->setAuthConfig(plugin_dir_path(__FILE__) . 'credentials.json');
+    $client->addScope(Google_Service_Calendar::CALENDAR);
+    $client->setRedirectUri(admin_url('admin.php?page=river_cruise_google_auth'));
+
+    if (!isset($_GET['code'])) {
+        $auth_url = $client->createAuthUrl();
+        echo '<a href="' . esc_url($auth_url) . '">Connect Google Calendar</a>';
+        return;
+    }
+
+    $client->fetchAccessTokenWithAuthCode($_GET['code']);
+    $access_token = $client->getAccessToken();
+
+    update_option('river_cruise_google_token', $access_token);
+
+    echo 'Google Calendar Connected!';
+}
+
+function river_cruise_google_menu() {
+    add_menu_page(
+        'Google Calendar Integration',
+        'Google Calendar',
+        'manage_options',
+        'river_cruise_google_auth',
+        'river_cruise_google_auth'
+    );
+}
+
+function river_cruise_fetch_calendar_slots() {
+    $access_token = get_option('river_cruise_google_token');
+
+    if (!$access_token) {
+        return ['error' => 'Google Calendar not connected.'];
+    }
+
+    $client = new Google_Client();
+    $client->setAccessToken($access_token);
+
+    if ($client->isAccessTokenExpired()) {
+        $client->fetchAccessTokenWithRefreshToken($client->getRefreshToken());
+        update_option('river_cruise_google_token', $client->getAccessToken());
+    }
+
+    $service = new Google_Service_Calendar($client);
+    $calendar_id = 'primary'; // Replace with your calendar ID if not using the primary calendar
+
+    $events = $service->events->listEvents($calendar_id, [
+        'timeMin' => date('c'), // Start from the current time
+        'timeMax' => date('c', strtotime('+7 days')), // Fetch slots for the next 7 days
+        'singleEvents' => true,
+        'orderBy' => 'startTime',
+    ]);
+
+    $available_slots = [];
+    foreach ($events->getItems() as $event) {
+        $available_slots[] = [
+            'start' => $event->getStart()->getDateTime(),
+            'end' => $event->getEnd()->getDateTime(),
+        ];
+    }
+
+    return $available_slots;
+}
+
+function river_cruise_add_to_calendar($booking_details) {
+    $access_token = get_option('river_cruise_google_token');
+
+    if (!$access_token) {
+        return ['error' => 'Google Calendar not connected.'];
+    }
+
+    $client = new Google_Client();
+    $client->setAccessToken($access_token);
+
+    if ($client->isAccessTokenExpired()) {
+        $client->fetchAccessTokenWithRefreshToken($client->getRefreshToken());
+        update_option('river_cruise_google_token', $client->getAccessToken());
+    }
+
+    $service = new Google_Service_Calendar($client);
+    $calendar_id = 'primary'; // Replace with your calendar ID
+
+    $event = new Google_Service_Calendar_Event([
+        'summary' => 'River Cruise Booking',
+        'description' => 'Booking by ' . $booking_details['name'],
+        'start' => [
+            'dateTime' => $booking_details['start_time'],
+            'timeZone' => 'Africa/Johannesburg',
+        ],
+        'end' => [
+            'dateTime' => $booking_details['end_time'],
+            'timeZone' => 'Africa/Johannesburg',
+        ],
+        'attendees' => [
+            ['email' => $booking_details['email']],
+        ],
+    ]);
+
+    $service->events->insert($calendar_id, $event);
+
+    return ['success' => 'Booking added to Google Calendar.'];
+}
