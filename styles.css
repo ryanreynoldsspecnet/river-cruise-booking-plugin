@@ -1,0 +1,33 @@
+#river-cruise-booking-form {
+    max-width: 600px;
+    margin: 20px auto;
+    font-family: Arial, sans-serif;
+}
+
+#river-cruise-booking-form label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+#river-cruise-booking-form input, #river-cruise-booking-form button {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+#river-cruise-booking-form button {
+    background-color: #0073aa;
+    color: white;
+    cursor: pointer;
+}
+
+#river-cruise-booking-form button:hover {
+    background-color: #005177;
+}
+
+#form-response {
+    font-size: 14px;
+    margin-top: 10px;
+}
